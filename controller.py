@@ -4,8 +4,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 #from scipy.interpolate import spline
 from scipy.interpolate import BSpline, make_interp_spline #  Switched to BSpline
+from model import VdynLonPlant
 
 glob_total_time = 100
+MAX_Toq = 50000
 
 def generate_target_v_list(*args):
     '''
@@ -25,7 +27,22 @@ def generate_target_v_list(*args):
         pre_point = point
     return target_v_list, target_time_list
 
-def run_pid(P,  I, D, total_time):
+def run_model(model: VdynLonPlant, toq, v):
+    if toq > 0:
+        if toq > MAX_Toq:
+            toq = MAX_Toq
+        E = np.array([toq, 0, v])
+        E = np.expand_dims(np.expand_dims(E, axis=-1), 0)
+        P = model.predict(E)
+    else:
+        if toq < -MAX_Toq:
+            toq = -MAX_Toq
+        E = np.array([0, abs(toq), v])
+        E = np.expand_dims(np.expand_dims(E, axis=-1), 0)
+        P = model.predict(E)
+    return P[0]
+
+def run_pid(P, I, D, total_time):
     pid = PID.PID(P, I, D)
     pid.SetPoint=0.0
     pid.setSampleTime(0.01)
@@ -33,17 +50,21 @@ def run_pid(P,  I, D, total_time):
     glob_total_time = total_time
 
     feedback = 0
-    target_v_list, target_time_list = generate_target_v_list([1,10],[3,20])
+    target_v_list, target_time_list = generate_target_v_list([20,1],[60,20])
     feedback_list = []
+
+    model = VdynLonPlant()
+    previous_v = 0
 
     for i in target_time_list:
         pid.SetPoint = target_v_list[i]
         pid.update(feedback)
         output = pid.output
         if pid.SetPoint > 0:
-            feedback += (output - (1/i))
+            feedback = run_model(model, output, previous_v)
         time.sleep(0.02)
 
+        previous_v = feedback if feedback > 0 else 0
         feedback_list.append(feedback)
 
     target_time_list_sm = np.array(target_time_list)
@@ -67,4 +88,4 @@ def plot(target_v, target_v_time_list, v, v_time_list, total_time):
 
 
 if __name__ == "__main__":
-    run_pid(1.2, 1, 0.001, total_time=50)
+    run_pid(3500, 0, 0.01, total_time=50)
